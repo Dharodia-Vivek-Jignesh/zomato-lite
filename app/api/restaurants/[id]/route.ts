@@ -3,12 +3,18 @@ import { NextResponse } from "next/server";
 
 const sql = neon(process.env.DATABASE_URL!);
 
-function toReviewView(row: {
+// The exact shape a reviews row arrives in (verified against the live database:
+// id is a number, rating is a number, comment is a string, created_at is a Date).
+type ReviewRow = {
   id: number;
   rating: number;
   comment: string;
   created_at: Date;
-}) {
+};
+
+// Converts a database row into the shape this API publicly prints: the frontend
+// receives createdAt as an ISO 8601 text string (safe to ship over the internet).
+function toReviewView(row: ReviewRow) {
   return {
     id: row.id,
     rating: row.rating,
@@ -50,17 +56,19 @@ export async function GET(
       ? null
       : Number(aggregates[0].average_rating);
 
-  // The newest review, by created_at.
-  const latestRows = await sql.query(
+  // The newest review, by created_at. The driver types rows loosely, so we
+  // assert the verified shape once, at the boundary, then type-check onward
+  // strictly (no "any" anywhere).
+  const latestRows = (await sql.query(
     "SELECT id, rating, comment, created_at FROM reviews WHERE restaurant_id = $1 ORDER BY created_at DESC LIMIT 1",
     [restaurantId]
-  );
+  )) as ReviewRow[];
 
   // Every review except the newest one, newest first (OFFSET 1 skips the first row).
-  const olderRows = await sql.query(
+  const olderRows = (await sql.query(
     "SELECT id, rating, comment, created_at FROM reviews WHERE restaurant_id = $1 ORDER BY created_at DESC OFFSET 1",
     [restaurantId]
-  );
+  )) as ReviewRow[];
 
   return NextResponse.json({
     name: restaurant.name,
